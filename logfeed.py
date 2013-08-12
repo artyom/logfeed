@@ -11,6 +11,7 @@ import pickle
 DEBUG = False
 SLEEPTIME = 1
 SAVE_PERIOD = 30
+REREAD_PERIOD = 60
 
 def debug(message):
     if DEBUG:
@@ -103,30 +104,46 @@ class LogFeed(object):
         time.sleep(SLEEPTIME)
 
     def __iter__(self):
-        for filename in self.logfiles:
-            with open_any(filename, 'r') as self.current_file:
-                self.current_signature = file_signature(self.current_file)
-                if self.current_signature == self.saved_signature:
-                    self.current_file.seek(self.saved_position)
-                # read the file until it ends
-                for l in self.current_file:
-                    yield l
-                self.save_state()
+        while True:
+            for filename in self.logfiles:
+                with open_any(filename, 'r') as self.current_file:
+                    debug("processing file {0}".format(self.current_file.name))
+                    self.current_signature = file_signature(self.current_file)
+                    if self.current_signature == self.saved_signature:
+                        self.current_file.seek(self.saved_position)
+                    # read the file until it ends
+                    for l in self.current_file:
+                        yield l
+                    self.save_state()
 
-                # if we're on last file AND want to receive new updates
-                if self.logfiles[-1] == filename and self.follow:
-                    cycles = 0
-                    try:
-                        while True:
-                            cycles+=1
-                            self.wait()
-                            self.current_file.seek(self.current_file.tell())
-                            for l in self.current_file:
-                                yield l
-                            if not cycles % SAVE_PERIOD:
-                                self.save_state()
-                    except KeyboardInterrupt:
-                        self.save_state()
+                    # if we're on last file AND want to receive new updates
+                    if self.logfiles[-1] == filename and self.follow:
+                        cycles = 0
+                        try:
+                            while True:
+                                cycles+=1
+                                self.wait()
+                                self.current_file.seek(self.current_file.tell())
+                                for l in self.current_file:
+                                    yield l
+                                if not cycles % SAVE_PERIOD:
+                                    self.save_state()
+                                if not cycles % REREAD_PERIOD:
+                                    self.save_state()
+                                    # try to detect if files were rotated
+                                    self.update_logfiles()
+                                    self.makesigmap()
+                                    self.discard_processed()
+                                    break
+                        except KeyboardInterrupt:
+                            # exit requested, saving state and breaking the loop
+                            self.save_state()
+                            self.follow = False
+                            break
+
+            # one-shot run, do not re-read logfiles for possible rotation
+            if not self.follow:
+                break
 
 
 
