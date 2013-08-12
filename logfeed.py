@@ -72,7 +72,9 @@ class LogFeed(object):
         self.sigmap = dict(map(lambda x: (file_signature(x), x), self.logfiles))
 
     def save_state(self):
+        debug("saving state")
         new_filename = "{0}.new".format(self.statefile)
+        self.saved_position = self.current_file.tell()
         with open(new_filename, 'w') as f:
             pickle.dump(dict(
                 position = self.current_file.tell(),
@@ -84,6 +86,7 @@ class LogFeed(object):
     def discard_processed(self):
         last_seen_file = self.sigmap.get(self.saved_signature)
         if last_seen_file:
+            debug("discarding already processed files")
             self.logfiles = self.logfiles[self.logfiles.index(last_seen_file):]
 
     def load_state(self):
