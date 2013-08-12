@@ -1,12 +1,16 @@
 #!/usr/bin/env python
 
+import os
 import sys
 import sha
 import glob
+import time
 import gzip, bz2
 import pickle
 
 DEBUG = False
+SLEEPTIME = 1
+SAVE_PERIOD = 30
 
 def debug(message):
     if DEBUG:
@@ -68,12 +72,14 @@ class LogFeed(object):
         self.sigmap = dict(map(lambda x: (file_signature(x), x), self.logfiles))
 
     def save_state(self):
-        with open(self.statefile, 'w') as f:
+        new_filename = "{0}.new".format(self.statefile)
+        with open(new_filename, 'w') as f:
             pickle.dump(dict(
                 position = self.current_file.tell(),
                 signature = self.current_signature,
                 filename = self.current_file.name
                 ), f)
+        os.rename(new_filename, self.statefile)
 
     def discard_processed(self):
         last_seen_file = self.sigmap.get(self.saved_signature)
@@ -84,11 +90,14 @@ class LogFeed(object):
         state = {}
         try:
             state = pickle.load(open(self.statefile, 'r'))
-        except IOError:
+        except (IOError, EOFError):
             pass
         self.saved_position = state.get('position',0)
         self.saved_signature = state.get('signature')
         self.saved_filename = state.get('filename')
+
+    def wait(self):
+        time.sleep(SLEEPTIME)
 
     def __iter__(self):
         for filename in self.logfiles:
@@ -96,9 +105,25 @@ class LogFeed(object):
                 self.current_signature = file_signature(self.current_file)
                 if self.current_signature == self.saved_signature:
                     self.current_file.seek(self.saved_position)
+                # read the file until it ends
                 for l in self.current_file:
                     yield l
                 self.save_state()
+
+                # if we're on last file AND want to receive new updates
+                if self.logfiles[-1] == filename and self.follow:
+                    cycles = 0
+                    try:
+                        while True:
+                            cycles+=1
+                            self.wait()
+                            self.current_file.seek(self.current_file.tell())
+                            for l in self.current_file:
+                                yield l
+                            if not cycles % SAVE_PERIOD:
+                                self.save_state()
+                    except KeyboardInterrupt:
+                        self.save_state()
 
 
 
@@ -106,6 +131,6 @@ if __name__ == "__main__":
     if not sys.argv[1:]:
         raise SystemExit("{0} /path/to/logfiles* (pattern)".format(sys.argv[0]))
     pattern = sys.argv[1]
-    lf = LogFeed(pattern)
+    lf = LogFeed(pattern, follow=False)
     for line in lf:
         sys.stdout.write(line)
