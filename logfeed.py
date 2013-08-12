@@ -7,6 +7,7 @@ import glob
 import time
 import gzip, bz2
 import pickle
+from collections import namedtuple
 
 DEBUG = False
 SLEEPTIME = 1
@@ -44,6 +45,8 @@ def file_signature(f):
             return None
     return sha.sha(s).hexdigest()
 
+Logfile = namedtuple('Logfile', ['filename', 'fh'])
+
 class LogFeed(object):
     """
     Usage:
@@ -53,6 +56,7 @@ class LogFeed(object):
             process(line)
     """
     def __init__(self, pattern, statefile=None, follow=False):
+        self.logfiles = []
         self.pattern = pattern
         self.follow = follow
         self.update_logfiles()
@@ -63,14 +67,16 @@ class LogFeed(object):
             self.statefile = '/tmp/state.{0}'.format(sha.sha(pattern).hexdigest())
         self.load_state()
         self.discard_processed()
-        debug("files are: {0}".format('\n'.join(self.logfiles)))
+        debug("files are: {0}".format('\n'.join(x.filename for x in self.logfiles)))
         debug("state is: {0} {1} {2}".format(self.saved_filename, self.saved_signature, self.saved_position))
 
     def update_logfiles(self):
-        self.logfiles = sorted(glob.glob(self.pattern), reverse=True)
+        for i in self.logfiles: i.fh.close()
+        logfiles = sorted(glob.glob(self.pattern), reverse=True)
+        self.logfiles = map(lambda x: Logfile(x, open_any(x, 'r')), logfiles)
 
     def makesigmap(self):
-        self.sigmap = dict(map(lambda x: (file_signature(x), x), self.logfiles))
+        self.sigmap = dict(map(lambda x: (file_signature(x.fh), x.filename), self.logfiles))
 
     def save_state(self):
         debug("saving state")
@@ -88,7 +94,16 @@ class LogFeed(object):
         last_seen_file = self.sigmap.get(self.saved_signature)
         if last_seen_file:
             debug("discarding already processed files")
-            self.logfiles = self.logfiles[self.logfiles.index(last_seen_file):]
+            # looking for last seen file position
+            pos = 0
+            for i in self.logfiles:
+                if i.filename == last_seen_file:
+                    pos = self.logfiles.index(i)
+                    break
+            # closing already processed files
+            for i in self.logfiles[:pos]: i.fh.close()
+            # trimming list
+            self.logfiles = self.logfiles[pos:]
 
     def load_state(self):
         state = {}
@@ -105,41 +120,43 @@ class LogFeed(object):
 
     def __iter__(self):
         while True:
-            for filename in self.logfiles:
-                with open_any(filename, 'r') as self.current_file:
-                    debug("processing file {0}".format(self.current_file.name))
-                    self.current_signature = file_signature(self.current_file)
-                    if self.current_signature == self.saved_signature:
-                        self.current_file.seek(self.saved_position)
-                    # read the file until it ends
-                    for l in self.current_file:
-                        yield l
-                    self.save_state()
+            for logfile in self.logfiles:
+                self.current_file = logfile.fh
+                debug("processing file {0}".format(self.current_file.name))
+                self.current_signature = file_signature(self.current_file)
+                if self.current_signature == self.saved_signature:
+                    self.current_file.seek(self.saved_position)
+                # read the file until it ends
+                for l in self.current_file:
+                    yield l
+                self.save_state()
 
-                    # if we're on last file AND want to receive new updates
-                    if self.logfiles[-1] == filename and self.follow:
-                        cycles = 0
-                        try:
-                            while True:
-                                cycles+=1
-                                self.wait()
-                                self.current_file.seek(self.current_file.tell())
-                                for l in self.current_file:
-                                    yield l
-                                if not cycles % SAVE_PERIOD:
-                                    self.save_state()
-                                if not cycles % REREAD_PERIOD:
-                                    self.save_state()
-                                    # try to detect if files were rotated
-                                    self.update_logfiles()
-                                    self.makesigmap()
-                                    self.discard_processed()
-                                    break
-                        except KeyboardInterrupt:
-                            # exit requested, saving state and breaking the loop
-                            self.save_state()
-                            self.follow = False
-                            break
+                # if we're on last file AND want to receive new updates
+                if self.logfiles[-1] == logfile and self.follow:
+                    cycles = 0
+                    try:
+                        while True:
+                            cycles+=1
+                            self.wait()
+                            self.current_file.seek(self.current_file.tell())
+                            for l in self.current_file:
+                                yield l
+                            if not cycles % SAVE_PERIOD:
+                                self.save_state()
+                            if not cycles % REREAD_PERIOD:
+                                self.save_state()
+                                # try to detect if files were rotated
+                                self.update_logfiles()
+                                self.makesigmap()
+                                self.discard_processed()
+                                break
+                    except KeyboardInterrupt:
+                        # exit requested, saving state and breaking the loop
+                        self.save_state()
+                        self.follow = False
+                        break
+                else:
+                    self.current_file.close()
 
             # one-shot run, do not re-read logfiles for possible rotation
             if not self.follow:
