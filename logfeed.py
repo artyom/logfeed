@@ -1,0 +1,111 @@
+#!/usr/bin/env python
+
+import sys
+import sha
+import glob
+import gzip, bz2
+import pickle
+
+DEBUG = False
+
+def debug(message):
+    if DEBUG:
+        sys.stderr.write("DEBUG: {0}\n".format(message))
+
+def open_any(filename, mode):
+    """
+    Opens regular files as well as .gz, .bz2 files
+    """
+    if filename.endswith('.gz'):
+        return gzip.GzipFile(filename, mode)
+    if filename.endswith('.bz2'):
+        return bz2.BZ2File(filename, mode)
+    return open(filename, mode)
+
+def file_signature(f):
+    """
+    Returns file signature (hash of 1st line)
+    """
+    if isinstance(f, (file, gzip.GzipFile, bz2.BZ2File)):
+        oldpos = f.tell()
+        f.seek(0)
+        s = f.readline()
+        f.seek(oldpos)
+    else:
+        try:
+            with open_any(f, 'r') as f:
+                s = f.readline()
+        except IOError:
+            return None
+    return sha.sha(s).hexdigest()
+
+class LogFeed(object):
+    """
+    Usage:
+
+        system_logs = LogFeed('/var/log/syslog*')
+        for line in system_logs:
+            process(line)
+    """
+    def __init__(self, pattern, statefile=None, follow=False):
+        self.pattern = pattern
+        self.follow = follow
+        self.update_logfiles()
+        self.makesigmap()
+        if statefile:
+            self.statefile = statefile
+        else:
+            self.statefile = '/tmp/state.{0}'.format(sha.sha(pattern).hexdigest())
+        self.load_state()
+        self.discard_processed()
+        debug("files are: {0}".format('\n'.join(self.logfiles)))
+        debug("state is: {0} {1} {2}".format(self.saved_filename, self.saved_signature, self.saved_position))
+
+    def update_logfiles(self):
+        self.logfiles = sorted(glob.glob(self.pattern), reverse=True)
+
+    def makesigmap(self):
+        self.sigmap = dict(map(lambda x: (file_signature(x), x), self.logfiles))
+
+    def save_state(self):
+        with open(self.statefile, 'w') as f:
+            pickle.dump(dict(
+                position = self.current_file.tell(),
+                signature = self.current_signature,
+                filename = self.current_file.name
+                ), f)
+
+    def discard_processed(self):
+        last_seen_file = self.sigmap.get(self.saved_signature)
+        if last_seen_file:
+            self.logfiles = self.logfiles[self.logfiles.index(last_seen_file):]
+
+    def load_state(self):
+        state = {}
+        try:
+            state = pickle.load(open(self.statefile, 'r'))
+        except IOError:
+            pass
+        self.saved_position = state.get('position',0)
+        self.saved_signature = state.get('signature')
+        self.saved_filename = state.get('filename')
+
+    def __iter__(self):
+        for filename in self.logfiles:
+            with open_any(filename, 'r') as self.current_file:
+                self.current_signature = file_signature(self.current_file)
+                if self.current_signature == self.saved_signature:
+                    self.current_file.seek(self.saved_position)
+                for l in self.current_file:
+                    yield l
+                self.save_state()
+
+
+
+if __name__ == "__main__":
+    if not sys.argv[1:]:
+        raise SystemExit("{0} /path/to/logfiles* (pattern)".format(sys.argv[0]))
+    pattern = sys.argv[1]
+    lf = LogFeed(pattern)
+    for line in lf:
+        sys.stdout.write(line)
