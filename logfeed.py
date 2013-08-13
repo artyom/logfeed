@@ -2,7 +2,7 @@
 
 import os
 import sys
-import sha
+import hashlib
 import glob
 import time
 import gzip, bz2
@@ -43,7 +43,7 @@ def file_signature(f):
                 s = f.readline()
         except IOError:
             return None
-    return sha.sha(s).hexdigest()
+    return hashlib.sha1(s).hexdigest()
 
 Logfile = namedtuple('Logfile', ['filename', 'fh'])
 
@@ -67,7 +67,7 @@ class LogFeed(object):
         if statefile:
             self.statefile = statefile
         else:
-            self.statefile = '/tmp/state.{0}'.format(sha.sha(pattern).hexdigest())
+            self.statefile = '/tmp/state.{0}'.format(hashlib.sha1(pattern).hexdigest())
         self.load_state()
         self.discard_processed()
         debug("files are: {0}".format('\n'.join(x.filename for x in self.logfiles)))
