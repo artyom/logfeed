@@ -7,7 +7,7 @@ except ImportError:
 
 
 setup(name='logfeed',
-      version='1.0',
+      version='1.1',
       description='Read log messages from rotated files',
       author='Artyom Pervukhin',
       author_email='artyom@evasive.ru',

@@ -58,8 +58,9 @@ class LogFeed(object):
     The statefile used to store state (log position) between runs; follow mode
     would read new log messages indefinitely.
     """
-    def __init__(self, pattern, statefile=None, follow=False):
+    def __init__(self, pattern, statefile=None, follow=False, consumer=None):
         self.logfiles = []
+        self.consumer = consumer
         self.pattern = pattern
         self.follow = follow
         self.update_logfiles()
@@ -131,7 +132,10 @@ class LogFeed(object):
                     self.current_file.seek(self.saved_position)
                 # read the file until it ends
                 for l in self.current_file:
-                    yield l
+                    if not self.consumer:
+                        yield l
+                    else:
+                        self.consumer(l)
                 self.save_state()
 
                 # if we're on last file AND want to receive new updates
@@ -143,7 +147,10 @@ class LogFeed(object):
                             self.wait()
                             self.current_file.seek(self.current_file.tell())
                             for l in self.current_file:
-                                yield l
+                                if not self.consumer:
+                                    yield l
+                                else:
+                                    self.consumer(l)
                             if not cycles % SAVE_PERIOD:
                                 self.save_state()
                             if not cycles % REREAD_PERIOD:

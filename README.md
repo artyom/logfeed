@@ -27,3 +27,15 @@ from oldest to newest.
 	system_logs = LogFeed('/var/log/syslog*')
 	for line in system_logs:
 	    process(line)
+
+If you need to be sure that log position is advanced only if line was
+successfully processed, you can use the following syntax:
+
+	from logfeed import LogFeed
+
+	system_logs = LogFeed('/var/log/syslog*', consumer=process)
+	for line in system_logs:
+	    pass
+
+If `process` function raises an exception, log position won't be advanced
+(though you can have some duplicate lines on successive run).
