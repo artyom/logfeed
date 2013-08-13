@@ -54,6 +54,9 @@ class LogFeed(object):
         system_logs = LogFeed('/var/log/syslog*')
         for line in system_logs:
             process(line)
+
+    The statefile used to store state (log position) between runs; follow mode
+    would read new log messages indefinitely.
     """
     def __init__(self, pattern, statefile=None, follow=False):
         self.logfiles = []
