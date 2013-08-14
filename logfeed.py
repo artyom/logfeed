@@ -6,6 +6,7 @@ import hashlib
 import glob
 import time
 import gzip, bz2
+import fcntl
 import pickle
 from collections import namedtuple
 
@@ -47,6 +48,13 @@ def file_signature(f):
 
 Logfile = namedtuple('Logfile', ['filename', 'fh'])
 
+class LogFeedException(Exception):
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return repr(self.value)
+
+
 class LogFeed(object):
     """
     Usage:
@@ -63,16 +71,27 @@ class LogFeed(object):
         self.consumer = consumer
         self.pattern = pattern
         self.follow = follow
-        self.update_logfiles()
-        self.makesigmap()
         if statefile:
             self.statefile = statefile
         else:
             self.statefile = '/tmp/state.{0}'.format(hashlib.sha1(pattern).hexdigest())
+        self.lock(self.statefile + '.lock')
+        self.update_logfiles()
+        self.makesigmap()
         self.load_state()
         self.discard_processed()
         debug("files are: {0}".format('\n'.join(x.filename for x in self.logfiles)))
         debug("state is: {0} {1} {2}".format(self.saved_filename, self.saved_signature, self.saved_position))
+
+    def lock(self, filename):
+        try:
+            self.lockfile = open(filename,'a+')
+            fcntl.flock(self.lockfile.fileno(), fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except IOError:
+            raise LogFeedException('Cannot acquire lock: {0}'.format(filename))
+
+    def unlock(self):
+        self.lockfile.close()
 
     def update_logfiles(self):
         for i in self.logfiles: i.fh.close()

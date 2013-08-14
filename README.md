@@ -17,6 +17,7 @@ from oldest to newest.
 * uncompressed, gzipped (`.gz`) or bzipped (`.bz2`) files support;
 * stores log position, so on successive run only new messages would be read;
 * correctly handles log rotation (even while reading file);
+* locks on state file;
 * can be used in *follow mode* to continuously yield new messages as they're
   become available.
 
