@@ -1,3 +1,7 @@
 *~
 *.swp
 *.py[co]
+/logfeed.egg-info
+/dist
+/build
+/debian/logfeed
