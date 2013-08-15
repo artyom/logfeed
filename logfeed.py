@@ -7,7 +7,7 @@ import glob
 import time
 import gzip, bz2
 import fcntl
-import pickle
+import json
 from collections import namedtuple
 
 DEBUG = False
@@ -106,7 +106,7 @@ class LogFeed(object):
         new_filename = "{0}.new".format(self.statefile)
         self.saved_position = self.current_file.tell()
         with open(new_filename, 'w') as f:
-            pickle.dump(dict(
+            json.dump(dict(
                 position = self.current_file.tell(),
                 signature = self.current_signature,
                 filename = self.current_file.name
@@ -131,7 +131,11 @@ class LogFeed(object):
     def load_state(self):
         state = {}
         try:
-            state = pickle.load(open(self.statefile, 'r'))
+            try:
+                state = json.load(open(self.statefile, 'r'))
+            except ValueError:
+                import pickle
+                state = pickle.load(open(self.statefile, 'r'))
         except (IOError, EOFError):
             pass
         self.saved_position = state.get('position',0)
