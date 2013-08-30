@@ -95,7 +95,7 @@ class LogFeed(object):
 
     def update_logfiles(self):
         for i in self.logfiles: i.fh.close()
-        logfiles = sorted(glob.glob(self.pattern), reverse=True)
+        logfiles = sorted(glob.glob(self.pattern), reverse=True, cmp=logfile_cmp)
         self.logfiles = map(lambda x: Logfile(x, open_any(x, 'r')), logfiles)
 
     def makesigmap(self):
@@ -194,6 +194,46 @@ class LogFeed(object):
             # one-shot run, do not re-read logfiles for possible rotation
             if not self.follow:
                 break
+
+
+def logfile_cmp(f1, f2):
+    """
+    Custom comparison function for proper logfile names sort
+
+    Use as a cmp=... keyword argument in sorted(...) function
+
+    /tmp/logs/logfile.log.gz
+    /tmp/logs/logfile.log.0
+    /tmp/logs/logfile.log.1
+    /tmp/logs/logfile.log.2.bz2
+    /tmp/logs/logfile.log.3
+    ...
+    /tmp/logs/logfile.log.8.gz
+    ...
+    /tmp/logs/logfile.log.14
+    /tmp/logs/logfile.log.15
+    /tmp/logs/logfile.log.screwit
+    """
+    if f1 == f2:
+        return 0
+
+    # strip common suffixes
+    for suffix in '.bz2 .gz'.split():
+        f1, f2 = map(lambda x: x.rsplit(suffix, 1)[0], [f1, f2])
+
+    p = os.path.commonprefix([f1, f2])
+    s1, s2 = map(lambda x: x[len(p):], [f1, f2])
+
+    if all(map(lambda x: x.isdigit(), [s1, s2])):
+        if int(s1) < int(s2):
+            return -1
+        else:
+            return +1
+
+    if len(f1) < len(f2):
+        return -1
+    else:
+        return +1
 
 
 
